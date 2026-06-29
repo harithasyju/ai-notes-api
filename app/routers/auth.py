@@ -1,13 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
-
-from database import SessionLocal
-from models.user import User
-from schemas.user import UserCreate, UserResponse
-
-from services.auth_service import verify_password, create_access_token
-from schemas.user import UserCreate, UserResponse, UserLogin, Token
+from app.dependencies import get_current_user
+from app.database import SessionLocal
+from app.models.user import User
+from app.schemas.user import UserCreate, UserResponse
+from fastapi.security import OAuth2PasswordRequestForm
+from app.services.auth_service import verify_password, create_access_token
+from app.schemas.user import UserCreate, UserResponse, UserLogin, Token
 
 router = APIRouter(
     prefix="/auth",
@@ -54,8 +54,11 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
     return new_user
 
 @router.post("/login", response_model=Token)
-def login(user_data: UserLogin, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == user_data.email).first()
+def login(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
+):
+    user = db.query(User).filter(User.email == form_data.username).first()
 
     if not user:
         raise HTTPException(
@@ -63,17 +66,18 @@ def login(user_data: UserLogin, db: Session = Depends(get_db)):
             detail="Invalid email or password",
         )
 
-    if not verify_password(user_data.password, user.hashed_password):
+    if not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
         )
 
-    access_token = create_access_token(
-        data={"sub": str(user.id)}
-    )
+    access_token = create_access_token(data={"sub": str(user.id)})
 
     return {
         "access_token": access_token,
         "token_type": "bearer",
     }
+@router.get("/me", response_model=UserResponse)
+def get_me(current_user: User = Depends(get_current_user)):
+    return current_user
