@@ -15,7 +15,7 @@ class NoteResponse(BaseModel):
     content: str
     created_at: datetime
     updated_at: datetime
-
+    summary: str | None = None
     class Config:
         from_attributes = True
 

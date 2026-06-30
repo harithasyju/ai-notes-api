@@ -5,6 +5,7 @@ from app.dependencies import get_current_user, get_db
 from app.models.note import Note
 from app.models.user import User
 from app.schemas.note import NoteCreate, NoteResponse, NoteUpdate
+from app.services.ai_service import summarize_note
 from typing import List
 router = APIRouter(
     prefix="/notes",
@@ -36,13 +37,7 @@ def get_notes(
     notes = db.query(Note).filter(Note.owner_id == current_user.id).all()
     return notes
 
-
-@router.get("/{note_id}", response_model=NoteResponse)
-def get_note(
-    note_id: str,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
+def get_user_note_or_404(note_id: str, db: Session, current_user: User):
     note = db.query(Note).filter(Note.id == note_id).first()
 
     if not note:
@@ -52,6 +47,10 @@ def get_note(
         raise HTTPException(status_code=403, detail="Not allowed to access this note")
 
     return note
+@router.get("/{note_id}", response_model=NoteResponse)
+
+def get_note(note_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    return get_user_note_or_404(note_id, db, current_user)
 
 
 @router.put("/{note_id}", response_model=NoteResponse)
@@ -61,13 +60,7 @@ def update_note(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    note = db.query(Note).filter(Note.id == note_id).first()
-
-    if not note:
-        raise HTTPException(status_code=404, detail="Note not found")
-
-    if note.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not allowed to update this note")
+    note = get_user_note_or_404(note_id, db, current_user)
 
     if note_data.title is not None:
         note.title = note_data.title
@@ -87,7 +80,7 @@ def delete_note(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    note = db.query(Note).filter(Note.id == note_id).first()
+    note = get_user_note_or_404(note_id, db, current_user)
 
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
@@ -99,3 +92,25 @@ def delete_note(
     db.commit()
 
     return None
+@router.post("/{note_id}/summarize", response_model=NoteResponse)
+def summarize_user_note(
+    note_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    note = get_user_note_or_404(note_id, db, current_user)
+
+    if note.summary:
+        return note
+
+    summary = summarize_note(
+        title=note.title,
+        content=note.content,
+    )
+
+    note.summary = summary
+
+    db.commit()
+    db.refresh(note)
+
+    return note
